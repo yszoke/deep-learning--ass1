@@ -6,7 +6,6 @@ import numpy as np
 
 def initialize_parameters(layer_dims):
     """
-
     :param layer_dims: an array of the dimensions of each layer in the network
     (layer 0 is the size of the flattened input, layer L is the output softmax)
     :return: a dictionary containing the initialized W and b parameters of
@@ -15,7 +14,13 @@ def initialize_parameters(layer_dims):
 
     # run a for loop (1->layer_dims length) in each iteration init the
     # weights (Wi) with np random and bias (Bi) with np zeros
-    pass
+    parameters = {}
+    for current_layer in range(1, len(layer_dims)):
+        parameters[current_layer] = [np.random.rand(layer_dims[current_layer-1]*layer_dims[current_layer]),
+                                     np.zeros(layer_dims[current_layer])]
+
+    return parameters
+
 
 def linear_forward(A, W, b):
     """
@@ -35,7 +40,9 @@ def linear_forward(A, W, b):
     # Z = (dot product (vector multiplication) of array input A and
     # array weights W )+ bias B
     # do not forget to return also the cache dictionary A W B
-    pass
+    Z = np.dot(A, W)
+    return Z + b, (A, W, b)
+
 
 def softmax(Z):
     """
@@ -46,8 +53,11 @@ def softmax(Z):
     # implement softmax activation function -
     # https://stackoverflow.com/questions/34968722/how-to-implement-the-softmax-function-in-python
     # do not forget to return activation cache
+    # = e ^ x / sum(e ^ x)
     """
-    pass
+    e_x = np.exp(np.subtract(Z, np.max(Z, axis=0)))
+    return e_x / e_x.sum(axis=0), Z
+
 
 def relu(Z):
     """
@@ -59,7 +69,9 @@ def relu(Z):
     # implement relu function
     # if Z <0 -> return 0 else return Z.
     # do not forget to return activation cache
-    pass
+    A = 0 if Z < 0 else Z
+    return A, Z
+
 
 def linear_activation_forward(A_prev, W, B, activation):
     """
@@ -77,7 +89,13 @@ def linear_activation_forward(A_prev, W, B, activation):
     # Then use an if statement to chose the activation function (relu/ softmax)
     # return cache and A - the activation of the current layer
     """
-    pass
+    Z, linear_cache = linear_forward(A_prev, W, B)
+    if activation == 'relu':
+        A, activation_cache = relu(Z)
+    elif activation == 'softmax':
+        A, activation_cache = softmax(Z)
+    return A, [linear_cache, activation_cache]
+
 
 def L_model_forward(X, parameters, use_batchnorm):
     """
@@ -97,7 +115,25 @@ def L_model_forward(X, parameters, use_batchnorm):
     # for the last layer - use linear_activation_forward with softmax
     activation function.
     """
-    pass
+    num_of_layers = len(parameters)
+    A = X
+    cache_list = []
+    for layer in range(1, num_of_layers):
+        W = parameters[layer][0]
+        B = parameters[layer][1]
+        A_prev = A
+        A, cache = linear_activation_forward(A_prev, W, B, 'relu')
+        if use_batchnorm:
+            A = apply_batchnorm(A)
+        cache_list.append(cache)
+
+    W = parameters[num_of_layers][0]
+    B = parameters[num_of_layers][1]
+    A_prev = A
+    A, cache = linear_activation_forward(A_prev, W, B, 'softmax')
+    cache_list.append(cache)
+    return A, cache_list
+
 
 def compute_cost(AL, Y):
     """
@@ -108,8 +144,11 @@ def compute_cost(AL, Y):
     :return: cost – the cross-entropy cost.
     """
 
-    #implement cross entropy cost function
-    pass
+    #implement cross entropy cost function: p=Y, q=AL
+    log_AL = np.nan_to_num(np.log(AL))
+    multiple = np.nan_to_num(np.multiply(Y, log_AL))
+    return np.nan_to_num(-np.sum(multiple) / AL.shape[1])
+
 
 def apply_batchnorm(A):
     """
@@ -120,12 +159,15 @@ def apply_batchnorm(A):
     """
 
     # compute sum, mean, std and epsilon
+    sum = np.sum(A, axis=1)
+    mean = sum / A.shape[1]
+    var = np.sum(np.square(A-mean), axis=1) / A.shape[1]
+    epsilon = np.finfo(float).eps
     # use the following function: (A-mean)/ sqrt(var+epsilon)
-    pass
-
-
+    return np.divide(np.subtract(A, mean), np.sqrt(var+epsilon))
 
 # backpropagation
+
 
 def Linear_backward(dZ, cache):
     """
@@ -142,6 +184,7 @@ def Linear_backward(dZ, cache):
     """
     pass
 
+
 def linear_activation_backward(dA, cache, activation):
     """
     Implements the backward propagation for the LINEAR->ACTIVATION layer. The
@@ -156,6 +199,7 @@ def linear_activation_backward(dA, cache, activation):
     """
     pass
 
+
 def relu_backward(dA, activation_cache):
     """
     Implements backward propagation for a ReLU unit
@@ -165,6 +209,7 @@ def relu_backward(dA, activation_cache):
     """
     pass
 
+
 def softmax_backward(dA, activation_cache):
     """
     Implements backward propagation for a softmax unit
@@ -173,6 +218,7 @@ def softmax_backward(dA, activation_cache):
     :return: dZ – gradient of the cost with respect to Z
     """
     pass
+
 
 def L_model_backward(AL, Y, caches):
     """
@@ -191,6 +237,7 @@ def L_model_backward(AL, Y, caches):
     """
     pass
 
+
 def Update_parameters(parameters, grads, learning_rate):
     """
     Updates parameters using gradient descent
@@ -207,7 +254,6 @@ def Update_parameters(parameters, grads, learning_rate):
 
 
 # Section 3 train a model using the previous functions
-
 def L_layer_model(X, Y, layers_dims, learning_rate, num_iterations, batch_size):
     """
     Implements a L-layer neural network. All layers but the last should have the
@@ -233,6 +279,7 @@ def L_layer_model(X, Y, layers_dims, learning_rate, num_iterations, batch_size):
     """
     pass
 
+
 def Predict(X, Y, parameters):
     """
     The function receives an input data and the true labels and calculates
@@ -251,6 +298,7 @@ def Predict(X, Y, parameters):
     pass
 
 
-
-
-
+if __name__ == '__main__':
+    ## print(initialize_parameters([3, 2, 2]))
+    ## print(linear_forward([0.5, 0.2], [0.7, 0.3], 0.8))
+    print(softmax([0.8, 0.4, 0.5]))
