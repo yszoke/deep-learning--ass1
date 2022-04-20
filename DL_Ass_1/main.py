@@ -2,7 +2,9 @@ import os
 import time
 
 import numpy as np
+from keras.utils import np_utils
 from sklearn.model_selection import train_test_split
+import tensorflow as tf
 
 
 def initialize_parameters(layer_dims):
@@ -17,8 +19,9 @@ def initialize_parameters(layer_dims):
     # weights (Wi) with np random and bias (Bi) with np zeros
     parameters = {}
     for current_layer in range(1, len(layer_dims)):
-        parameters[current_layer] = [np.random.rand(layer_dims[current_layer-1]*layer_dims[current_layer]),
-                                     np.zeros(layer_dims[current_layer])]
+        parameters[current_layer] = [np.random.randn(layer_dims[current_layer],
+                                                     layer_dims[current_layer - 1]) * np.sqrt(2 / layer_dims[current_layer]),
+                                     np.zeros((layer_dims[current_layer], 1))]
 
     return parameters
 
@@ -41,7 +44,7 @@ def linear_forward(A, W, b):
     # Z = (dot product (vector multiplication) of array input A and
     # array weights W )+ bias B
     # do not forget to return also the cache dictionary A W B
-    Z = np.dot(A, W)
+    Z = np.dot(W, A)
     return Z + b, (A, W, b)
 
 
@@ -70,7 +73,7 @@ def relu(Z):
     # implement relu function
     # if Z <0 -> return 0 else return Z.
     # do not forget to return activation cache
-    A = 0 if Z < 0 else Z
+    A = np.maximum(0, Z)
     return A, Z
 
 
@@ -319,12 +322,12 @@ def L_layer_model(X, Y, layers_dims, learning_rate, num_iterations, batch_size, 
     costs = []
     last_cost_val = 100
     parameters = initialize_parameters(layers_dims)
-    X_train, X_val, y_train, y_val = train_test_split(X, Y, test_size=0.2, random_state=42)
+    X_train, X_val, y_train, y_val = train_test_split(X.T, Y.T, test_size=0.2, random_state=42)
     for iteration in range(num_iterations):
-        for batch in range(len(y_train) / batch_size):
+        for batch in range(int(len(y_train) / batch_size)):
             starting_sample = batch * batch_size
             ending_sample = starting_sample + batch_size
-            A, cache_list = L_model_forward(X_train[starting_sample:ending_sample], parameters, use_batchnorm)
+            A, cache_list = L_model_forward(X_train[starting_sample:ending_sample].T, parameters, use_batchnorm)
 
             grads = L_model_backward(A, y_train[starting_sample:ending_sample], cache_list)
             parameters = Update_parameters(parameters, grads, learning_rate)
@@ -366,4 +369,24 @@ def Predict(X, Y, parameters, use_batchnorm):
 
 
 if __name__ == '__main__':
-    pass
+    data = tf.keras.datasets.mnist.load_data()
+    (train_images, train_labels), (test_images, test_labels) = data
+    train_labels = np_utils.to_categorical(train_labels, 10)
+    test_labels = np_utils.to_categorical(test_labels, 10)
+    layers = [784, 20, 7, 5, 10]
+    learning_rate = 0.009
+    num_iterations = 3000
+    batch_size = 32
+    use_batchnorm = False
+
+    train_images_flat = train_images.reshape(train_images.shape[0], -1)
+    test_images_flat = test_images.reshape(test_images.shape[0], -1)
+
+    train_images_norm = np.divide(train_images_flat, 255)
+    test_images_norm = np.divide(test_images_flat, 255)
+    parameters, costs = L_layer_model(train_images_norm.T, train_labels.T, layers, learning_rate, num_iterations, batch_size, use_batchnorm)
+
+    accuracy = Predict(test_images_norm.T, test_labels.T, parameters, use_batchnorm)
+
+    print(f"accuracy: {accuracy}")
+
