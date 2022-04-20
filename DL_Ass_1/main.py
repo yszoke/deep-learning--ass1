@@ -182,7 +182,16 @@ def Linear_backward(dZ, cache):
     dW -- Gradient of the cost with respect to W (current layer l), same shape as W
     db -- Gradient of the cost with respect to b (current layer l), same shape as b
     """
-    pass
+    A_prev = cache[0]
+    W = cache[1]
+    b = cache[2]
+    samples = A_prev.shape[1]
+
+    dW = np.dot(dZ, A_prev.T) / samples
+    db = np.sum(dZ, axis=1) / samples
+    dA_prev = np.dot(W.T, dZ)
+
+    return dA_prev, dW, db
 
 
 def linear_activation_backward(dA, cache, activation):
@@ -197,7 +206,15 @@ def linear_activation_backward(dA, cache, activation):
     dW – Gradient of the cost with respect to W (current layer l), same shape as W
     db – Gradient of the cost with respect to b (current layer l), same shape as b
     """
-    pass
+    linear_cache, activation_cache = cache
+    if activation == 'relu':
+        dZ = relu_backward(dA, activation_cache)
+        dA_prev, dW, db = Linear_backward(dZ, linear_cache)
+    elif activation == 'softmax':
+        dZ = softmax_backward(dA, activation_cache)
+        dA_prev, dW, db = Linear_backward(dZ, linear_cache)
+
+    return dA_prev, dW, db
 
 
 def relu_backward(dA, activation_cache):
@@ -207,7 +224,9 @@ def relu_backward(dA, activation_cache):
     :param activation_cache: contains Z (stored during the forward propagation)
     :return: gradient of the cost with respect to Z
     """
-    pass
+    dZ = np.array(dA, copy=True)
+    dZ[activation_cache <= 0] = 0
+    return dZ
 
 
 def softmax_backward(dA, activation_cache):
@@ -217,7 +236,7 @@ def softmax_backward(dA, activation_cache):
     :param activation_cache: contains Z (stored during the forward propagation)
     :return: dZ – gradient of the cost with respect to Z
     """
-    pass
+    return np.subtract(dA - activation_cache[1])
 
 
 def L_model_backward(AL, Y, caches):
@@ -235,7 +254,20 @@ def L_model_backward(AL, Y, caches):
              grads["dW" + str(l)] = ...
              grads["db" + str(l)] = ...
     """
-    pass
+    grads = {}
+    layers = len(caches)
+    dZ = softmax_backward(AL, Y)
+    dA_prev, dW, db = linear_activation_backward(dZ, caches[layers-1], "softmax")
+    grads["dA" + str(layers-1)] = dA_prev
+    grads["dW" + str(layers)] = dW
+    grads["db" + str(layers)] = db
+    for l in reversed(range(layers-1)):
+        dA_prev, dW, db = linear_activation_backward(dA_prev, caches[l], "relu")
+        grads["dA" + str(l)] = dA_prev
+        grads["dW" + str(l+1)] = dW
+        grads["db" + str(l+1)] = db
+
+    return grads
 
 
 def Update_parameters(parameters, grads, learning_rate):
@@ -250,7 +282,11 @@ def Update_parameters(parameters, grads, learning_rate):
     :return: parameters – the updated values of the parameters object
     provided as input
     """
-    pass
+    for l in range(1, len(parameters)+1):
+        parameters[l][0] = parameters[l][0] - learning_rate * grads["dW" + str(l)]
+        parameters[l][1] = parameters[l][1] - learning_rate * grads["db" + str(l)]
+
+    return parameters
 
 
 # Section 3 train a model using the previous functions
