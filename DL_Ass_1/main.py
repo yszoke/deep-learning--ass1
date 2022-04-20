@@ -2,6 +2,7 @@ import os
 import time
 
 import numpy as np
+from sklearn.model_selection import train_test_split
 
 
 def initialize_parameters(layer_dims):
@@ -283,14 +284,14 @@ def Update_parameters(parameters, grads, learning_rate):
     provided as input
     """
     for l in range(1, len(parameters)+1):
-        parameters[l][0] = parameters[l][0] - learning_rate * grads["dW" + str(l)]
-        parameters[l][1] = parameters[l][1] - learning_rate * grads["db" + str(l)]
+        parameters[l][0] = parameters[l][0] - (learning_rate * grads["dW" + str(l)])
+        parameters[l][1] = parameters[l][1] - (learning_rate * grads["db" + str(l)])
 
     return parameters
 
 
 # Section 3 train a model using the previous functions
-def L_layer_model(X, Y, layers_dims, learning_rate, num_iterations, batch_size):
+def L_layer_model(X, Y, layers_dims, learning_rate, num_iterations, batch_size, use_batchnorm):
     """
     Implements a L-layer neural network. All layers but the last should have the
     ReLU activation function, and the final layer will apply the softmax
@@ -313,10 +314,36 @@ def L_layer_model(X, Y, layers_dims, learning_rate, num_iterations, batch_size):
     the values of the cost function (calculated by the compute_cost function).
     One value is to be saved after each 100 training iterations (e.g. 3000 iterations -> 30 values).
     """
-    pass
+    # Hint: the function should use the earlier functions in the following order:
+    # initialize -> L_model_forward -> compute_cost -> L_model_backward -> update parameters
+    costs = []
+    last_cost_val = 100
+    parameters = initialize_parameters(layers_dims)
+    X_train, X_val, y_train, y_val = train_test_split(X, Y, test_size=0.2, random_state=42)
+    for iteration in range(num_iterations):
+        for batch in range(len(y_train) / batch_size):
+            starting_sample = batch * batch_size
+            ending_sample = starting_sample + batch_size
+            A, cache_list = L_model_forward(X_train[starting_sample:ending_sample], parameters, use_batchnorm)
+
+            grads = L_model_backward(A, y_train[starting_sample:ending_sample], cache_list)
+            parameters = Update_parameters(parameters, grads, learning_rate)
+
+        if iteration % 100 == 0:
+            costs.append(compute_cost(A, y_train))
+
+            A_val, cache_list_val = L_model_forward(X_val, parameters, use_batchnorm)
+            cost_val = compute_cost(A_val, y_val)
+            accuracy = Predict(X_val, y_val, parameters)
+            print(f"iteration {iteration}, cost {cost_val}, accuracy {accuracy}")
+            if last_cost_val - cost_val < 0.01:
+                print(f"early stopping after {iteration}")
+                break
+
+    return parameters, costs
 
 
-def Predict(X, Y, parameters):
+def Predict(X, Y, parameters, use_batchnorm):
     """
     The function receives an input data and the true labels and calculates
     the accuracy of the trained neural network on the data.
@@ -331,10 +358,12 @@ def Predict(X, Y, parameters):
     highest confidence score). Use the softmax function to normalize the
     output values.
     """
-    pass
+    A, cache_list = L_model_forward(X, parameters, use_batchnorm)
+    A_norm = softmax(A[0])
+    y_predict = np.argmax(A_norm, axis=0)
+    correct = np.equal(Y, y_predict)
+    return float(np.sum(correct) / X.shape[1])
 
 
 if __name__ == '__main__':
-    ## print(initialize_parameters([3, 2, 2]))
-    ## print(linear_forward([0.5, 0.2], [0.7, 0.3], 0.8))
-    print(softmax([0.8, 0.4, 0.5]))
+    pass
