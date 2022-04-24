@@ -188,11 +188,12 @@ def Linear_backward(dZ, cache):
     """
     A_prev = cache[0]
     W = cache[1]
-    b = cache[2]
+    neurons = cache[2].shape[0]
     samples = A_prev.shape[1]
 
     dW = np.dot(dZ, A_prev.T) / samples
-    db = np.sum(dZ, axis=1) / samples
+    # db = np.sum(dZ, axis=1) / samples
+    db = np.array([[np.sum(dZ[i]) / samples] for i in range(neurons)])
     dA_prev = np.dot(W.T, dZ)
 
     return dA_prev, dW, db
@@ -210,12 +211,14 @@ def linear_activation_backward(dA, cache, activation):
     dW – Gradient of the cost with respect to W (current layer l), same shape as W
     db – Gradient of the cost with respect to b (current layer l), same shape as b
     """
-    linear_cache, activation_cache = cache
+    linear_cache = cache[0]
+    activation_cache = cache[1]
     if activation == 'relu':
         dZ = relu_backward(dA, activation_cache)
         dA_prev, dW, db = Linear_backward(dZ, linear_cache)
     elif activation == 'softmax':
-        dZ = softmax_backward(dA, activation_cache)
+        activation_cache_and_Y = cache[2]
+        dZ = softmax_backward(dA, activation_cache_and_Y.T)
         dA_prev, dW, db = Linear_backward(dZ, linear_cache)
 
     return dA_prev, dW, db
@@ -240,7 +243,7 @@ def softmax_backward(dA, activation_cache):
     :param activation_cache: contains Z (stored during the forward propagation)
     :return: dZ – gradient of the cost with respect to Z
     """
-    return np.subtract(dA - activation_cache[1])
+    return np.subtract(dA.T, activation_cache)
 
 
 def L_model_backward(AL, Y, caches):
@@ -261,12 +264,16 @@ def L_model_backward(AL, Y, caches):
     grads = {}
     layers = len(caches)
     dZ = softmax_backward(AL, Y)
-    dA_prev, dW, db = linear_activation_backward(dZ, caches[layers-1], "softmax")
+
+    last_cache_plus_Y = [i for i in caches[layers - 1]]
+    last_cache_plus_Y.append(Y)
+    dA_prev, dW, db = linear_activation_backward(dZ, last_cache_plus_Y, "softmax")
+    # dA_prev, dW, db = linear_activation_backward(dZ, caches[layers-1], "softmax")
     grads["dA" + str(layers-1)] = dA_prev
     grads["dW" + str(layers)] = dW
     grads["db" + str(layers)] = db
     for l in reversed(range(layers-1)):
-        dA_prev, dW, db = linear_activation_backward(dA_prev, caches[l], "relu")
+        dA_prev, dW, db = linear_activation_backward(grads["dA" + str(l + 1)], caches[l], "relu")
         grads["dA" + str(l)] = dA_prev
         grads["dW" + str(l+1)] = dW
         grads["db" + str(l+1)] = db
@@ -323,6 +330,7 @@ def L_layer_model(X, Y, layers_dims, learning_rate, num_iterations, batch_size, 
     last_cost_val = 100
     parameters = initialize_parameters(layers_dims)
     X_train, X_val, y_train, y_val = train_test_split(X.T, Y.T, test_size=0.2, random_state=42)
+
     for iteration in range(num_iterations):
         for batch in range(int(len(y_train) / batch_size)):
             starting_sample = batch * batch_size
@@ -333,11 +341,11 @@ def L_layer_model(X, Y, layers_dims, learning_rate, num_iterations, batch_size, 
             parameters = Update_parameters(parameters, grads, learning_rate)
 
         if iteration % 100 == 0:
-            costs.append(compute_cost(A, y_train))
+            costs.append(compute_cost(A.T, y_train[starting_sample:ending_sample]))
 
-            A_val, cache_list_val = L_model_forward(X_val, parameters, use_batchnorm)
-            cost_val = compute_cost(A_val, y_val)
-            accuracy = Predict(X_val, y_val, parameters)
+            A_val, cache_list_val = L_model_forward(X_val.T, parameters, use_batchnorm)
+            cost_val = compute_cost(A_val.T, y_val)
+            accuracy = Predict(X_val, y_val, parameters, use_batchnorm)
             print(f"iteration {iteration}, cost {cost_val}, accuracy {accuracy}")
             if last_cost_val - cost_val < 0.01:
                 print(f"early stopping after {iteration}")
@@ -361,10 +369,10 @@ def Predict(X, Y, parameters, use_batchnorm):
     highest confidence score). Use the softmax function to normalize the
     output values.
     """
-    A, cache_list = L_model_forward(X, parameters, use_batchnorm)
+    A, cache_list = L_model_forward(X.T, parameters, use_batchnorm)
     A_norm = softmax(A[0])
     y_predict = np.argmax(A_norm, axis=0)
-    correct = np.equal(Y, y_predict)
+    correct = np.equal(Y.T, y_predict)
     return float(np.sum(correct) / X.shape[1])
 
 
@@ -386,7 +394,7 @@ if __name__ == '__main__':
     test_images_norm = np.divide(test_images_flat, 255)
     parameters, costs = L_layer_model(train_images_norm.T, train_labels.T, layers, learning_rate, num_iterations, batch_size, use_batchnorm)
 
-    accuracy = Predict(test_images_norm.T, test_labels.T, parameters, use_batchnorm)
+    accuracy = Predict(test_images_norm, test_labels, parameters, use_batchnorm)
 
     print(f"accuracy: {accuracy}")
 
