@@ -1,11 +1,11 @@
 import os
 import time
-
+import operator
 import numpy as np
 from keras.utils import np_utils
 from sklearn.model_selection import train_test_split
 import tensorflow as tf
-
+import matplotlib.pyplot as plt
 
 def initialize_parameters(layer_dims):
     """
@@ -77,7 +77,7 @@ def relu(Z):
     return A, Z
 
 
-def linear_activation_forward(A_prev, W, B, activation):
+def linear_activation_forward(A_prev, W, B, activation, dropout):
     """
     Implement the forward propagation for the LINEAR->ACTIVATION layer
     :param A_prev: activations of the previous layer
@@ -96,12 +96,19 @@ def linear_activation_forward(A_prev, W, B, activation):
     Z, linear_cache = linear_forward(A_prev, W, B)
     if activation == 'relu':
         A, activation_cache = relu(Z)
+        if dropout < 1:
+            drop_matrix = np.random.rand(A.shape[0], A.shape[1])
+            drop_matrix = (drop_matrix < dropout)
+            A = np.multiply(A, drop_matrix)
+            A = np.divide(A, dropout)
+            dropout_cache = drop_matrix
+            return A, [linear_cache, activation_cache, dropout_cache]
     elif activation == 'softmax':
         A, activation_cache = softmax(Z)
     return A, [linear_cache, activation_cache]
 
 
-def L_model_forward(X, parameters, use_batchnorm):
+def L_model_forward(X, parameters, use_batchnorm, dropout):
     """
     Implement forward propagation for the [LINEAR->RELU]*(L-1)->LINEAR->SOFTMAX
     computation
@@ -126,7 +133,7 @@ def L_model_forward(X, parameters, use_batchnorm):
         W = parameters[layer][0]
         B = parameters[layer][1]
         A_prev = A
-        A, cache = linear_activation_forward(A_prev, W, B, 'relu')
+        A, cache = linear_activation_forward(A_prev, W, B, 'relu', dropout)
         if use_batchnorm:
             A = apply_batchnorm(A)
         cache_list.append(cache)
@@ -134,7 +141,7 @@ def L_model_forward(X, parameters, use_batchnorm):
     W = parameters[num_of_layers][0]
     B = parameters[num_of_layers][1]
     A_prev = A
-    A, cache = linear_activation_forward(A_prev, W, B, 'softmax')
+    A, cache = linear_activation_forward(A_prev, W, B, 'softmax', dropout)
     cache_list.append(cache)
     return A, cache_list
 
@@ -149,9 +156,20 @@ def compute_cost(AL, Y):
     """
 
     #implement cross entropy cost function: p=Y, q=AL
-    log_AL = np.nan_to_num(np.log(AL))
-    multiple = np.nan_to_num(np.multiply(Y, log_AL))
-    return np.nan_to_num(-np.sum(multiple) / AL.shape[1])
+    # log_AL = np.nan_to_num(np.log(AL))
+    # multiple = np.nan_to_num(np.multiply(Y, log_AL))
+    # return np.nan_to_num(-np.sum(multiple) / AL.shape[1])
+
+    n_classes = AL.shape[0]
+    n_examples = AL.shape[1]
+
+    cost = 0
+    for ex in range(0, n_examples):
+        for cl in range(0, n_classes):
+            if Y[cl][ex] == 1:
+                cost += 1 * np.log(AL[cl][ex])
+    cost /= (-n_examples)
+    return cost
 
 
 def apply_batchnorm(A):
@@ -163,9 +181,9 @@ def apply_batchnorm(A):
     """
 
     # compute sum, mean, std and epsilon
-    sum = np.sum(A, axis=1)
+    sum = np.sum(A, axis=1, keepdims=True)
     mean = sum / A.shape[1]
-    var = np.sum(np.square(A-mean), axis=1) / A.shape[1]
+    var = np.sum(np.square(A-mean), axis=1, keepdims=True) / A.shape[1]
     epsilon = np.finfo(float).eps
     # use the following function: (A-mean)/ sqrt(var+epsilon)
     return np.divide(np.subtract(A, mean), np.sqrt(var+epsilon))
@@ -199,7 +217,7 @@ def Linear_backward(dZ, cache):
     return dA_prev, dW, db
 
 
-def linear_activation_backward(dA, cache, activation):
+def linear_activation_backward(dA, cache, activation, dropout, dropout_cache):
     """
     Implements the backward propagation for the LINEAR->ACTIVATION layer. The
     function first computes dZ and then applies the linear_backward function.
@@ -217,9 +235,12 @@ def linear_activation_backward(dA, cache, activation):
         dZ = relu_backward(dA, activation_cache)
         dA_prev, dW, db = Linear_backward(dZ, linear_cache)
     elif activation == 'softmax':
-        activation_cache_and_Y = cache[2]
-        dZ = softmax_backward(dA, activation_cache_and_Y.T)
+        Y = cache[2]
+        dZ = softmax_backward(dA, Y)
         dA_prev, dW, db = Linear_backward(dZ, linear_cache)
+    if dropout < 1 and bool(dropout_cache):
+        dA_prev = np.multiply(dA_prev, dropout_cache.get("cache"))
+        dA_prev = np.divide(dA_prev, dropout)
 
     return dA_prev, dW, db
 
@@ -243,10 +264,10 @@ def softmax_backward(dA, activation_cache):
     :param activation_cache: contains Z (stored during the forward propagation)
     :return: dZ – gradient of the cost with respect to Z
     """
-    return np.subtract(dA.T, activation_cache)
+    return np.subtract(dA, activation_cache)
 
 
-def L_model_backward(AL, Y, caches):
+def L_model_backward(AL, Y, caches, dropout):
     """
     Implement the backward propagation process for the entire network.
     :param AL: - the probabilities vector, the output of the forward propagation
@@ -262,18 +283,24 @@ def L_model_backward(AL, Y, caches):
              grads["db" + str(l)] = ...
     """
     grads = {}
+    dropout_cache = {}
     layers = len(caches)
-    dZ = softmax_backward(AL, Y)
+    if dropout < 1:
+        dropout_cache = {'prob': dropout, 'cache': caches[layers-2][2]}
 
     last_cache_plus_Y = [i for i in caches[layers - 1]]
     last_cache_plus_Y.append(Y)
-    dA_prev, dW, db = linear_activation_backward(dZ, last_cache_plus_Y, "softmax")
+    dA_prev, dW, db = linear_activation_backward(AL, last_cache_plus_Y, "softmax", dropout, dropout_cache)
     # dA_prev, dW, db = linear_activation_backward(dZ, caches[layers-1], "softmax")
     grads["dA" + str(layers-1)] = dA_prev
     grads["dW" + str(layers)] = dW
     grads["db" + str(layers)] = db
     for l in reversed(range(layers-1)):
-        dA_prev, dW, db = linear_activation_backward(grads["dA" + str(l + 1)], caches[l], "relu")
+        if dropout < 1 and l - 2 > 0:
+            dropout_cache = {'prob': dropout, 'cache': caches[l - 2][2]}
+        else:
+            dropout_cache = {}
+        dA_prev, dW, db = linear_activation_backward(grads["dA" + str(l + 1)], caches[l], "relu", dropout, dropout_cache)
         grads["dA" + str(l)] = dA_prev
         grads["dW" + str(l+1)] = dW
         grads["db" + str(l+1)] = db
@@ -300,8 +327,19 @@ def Update_parameters(parameters, grads, learning_rate):
     return parameters
 
 
+def plot(train_results, val_results, title, y_label):
+    plt.plot([i[0] for i in train_results], [i[1] for i in train_results], label=f'training {y_label}')
+    plt.plot([i[0] for i in val_results], [i[1] for i in val_results], label=f'validation {y_label}')
+    plt.title(title)
+    plt.xlabel('Iterations')
+    plt.ylabel(y_label)
+    plt.legend()
+    plt.show()
+    # plt.savefig(f'{y_label}.png', dpi=fig.dpi)
+
+
 # Section 3 train a model using the previous functions
-def L_layer_model(X, Y, layers_dims, learning_rate, num_iterations, batch_size, use_batchnorm):
+def L_layer_model(X, Y, layers_dims, learning_rate, num_iterations, batch_size, use_batchnorm, dropout):
     """
     Implements a L-layer neural network. All layers but the last should have the
     ReLU activation function, and the final layer will apply the softmax
@@ -327,29 +365,54 @@ def L_layer_model(X, Y, layers_dims, learning_rate, num_iterations, batch_size, 
     # Hint: the function should use the earlier functions in the following order:
     # initialize -> L_model_forward -> compute_cost -> L_model_backward -> update parameters
     costs = []
+    costs_val = []
+    accuracy_train_list = []
+    accuracy_val = []
     last_cost_val = 100
     parameters = initialize_parameters(layers_dims)
     X_train, X_val, y_train, y_val = train_test_split(X.T, Y.T, test_size=0.2, random_state=42)
-
-    for iteration in range(num_iterations):
+    num_epochs = num_iterations
+    iteration = 0
+    for epoch in range(num_epochs):
+        print(f'Epoch:{epoch}')
         for batch in range(int(len(y_train) / batch_size)):
+
             starting_sample = batch * batch_size
             ending_sample = starting_sample + batch_size
-            A, cache_list = L_model_forward(X_train[starting_sample:ending_sample].T, parameters, use_batchnorm)
+            A, cache_list = L_model_forward(X_train[starting_sample:ending_sample].T, parameters, use_batchnorm, dropout)
 
-            grads = L_model_backward(A, y_train[starting_sample:ending_sample], cache_list)
+            grads = L_model_backward(A, y_train[
+                                        starting_sample:ending_sample].T,
+                                     cache_list, dropout)
             parameters = Update_parameters(parameters, grads, learning_rate)
 
-        if iteration % 100 == 0:
-            costs.append(compute_cost(A.T, y_train[starting_sample:ending_sample]))
+            if iteration % 100 == 0:
+                costs.append((iteration, compute_cost(A, y_train[starting_sample:ending_sample].T)))
 
-            A_val, cache_list_val = L_model_forward(X_val.T, parameters, use_batchnorm)
-            cost_val = compute_cost(A_val.T, y_val)
-            accuracy = Predict(X_val, y_val, parameters, use_batchnorm)
-            print(f"iteration {iteration}, cost {cost_val}, accuracy {accuracy}")
-            if last_cost_val - cost_val < 0.01:
-                print(f"early stopping after {iteration}")
-                break
+                A_val, cache_list_val = L_model_forward(X_val.T, parameters, use_batchnorm, 1)
+                cost_val = compute_cost(A_val, y_val.T)
+                costs_val.append((iteration, cost_val))
+
+                accuracy_train = Predict(X_train[starting_sample:ending_sample].T, y_train[starting_sample:ending_sample].T, parameters, use_batchnorm)
+                accuracy_train_list.append((iteration, accuracy_train))
+
+                accuracy = Predict(X_val.T, y_val.T, parameters, use_batchnorm)
+                accuracy_val.append((iteration, accuracy))
+
+                print(f"iteration {iteration}, cost_val {cost_val}, accuracy {accuracy}")
+                if last_cost_val - cost_val < 0.5 and epoch>5:
+                    print(f"early stopping after {iteration}")
+                    plot(costs, costs_val, "Train validation cost", "Cost")
+                    plot(accuracy_train_list, accuracy_val, "Train validation accuracy", "Accuracy")
+                    accuracy_final_train = Predict(X_train.T, y_train.T, parameters, use_batchnorm)
+                    accuracy_final_val = Predict(X_val.T, y_val.T, parameters, use_batchnorm)
+                    print(f"training accuracy: {accuracy_final_train}")
+                    print(f"validation accuracy: {accuracy_final_val}")
+                    return parameters, costs
+                last_cost_val = cost_val
+            iteration += 1
+    plot(costs, costs_val, "Train validation cost", "Cost")
+    plot(accuracy_train_list, accuracy_val, "Train validation accuracy", "Accuracy")
 
     return parameters, costs
 
@@ -369,11 +432,16 @@ def Predict(X, Y, parameters, use_batchnorm):
     highest confidence score). Use the softmax function to normalize the
     output values.
     """
-    A, cache_list = L_model_forward(X.T, parameters, use_batchnorm)
-    A_norm = softmax(A[0])
-    y_predict = np.argmax(A_norm, axis=0)
-    correct = np.equal(Y.T, y_predict)
-    return float(np.sum(correct) / X.shape[1])
+
+    AL, caches = L_model_forward(X, parameters, use_batchnorm, 1)
+    AL = softmax(AL)[0]
+    acc = 0
+    for i in range(AL.shape[1]):
+        tmp_AL = max(enumerate(AL[:, i]), key=operator.itemgetter(1))[0]
+        tmp_Y = max(enumerate(Y[:, i]), key=operator.itemgetter(1))[0]
+        if tmp_AL == tmp_Y:
+            acc += 1
+    return (acc / Y.shape[1])*100
 
 
 if __name__ == '__main__':
@@ -386,15 +454,17 @@ if __name__ == '__main__':
     num_iterations = 3000
     batch_size = 32
     use_batchnorm = False
+    dropout = 1
 
     train_images_flat = train_images.reshape(train_images.shape[0], -1)
     test_images_flat = test_images.reshape(test_images.shape[0], -1)
 
     train_images_norm = np.divide(train_images_flat, 255)
     test_images_norm = np.divide(test_images_flat, 255)
-    parameters, costs = L_layer_model(train_images_norm.T, train_labels.T, layers, learning_rate, num_iterations, batch_size, use_batchnorm)
+    parameters, costs = L_layer_model(train_images_norm.T, train_labels.T, layers, learning_rate, num_iterations, batch_size, use_batchnorm, dropout)
 
-    accuracy = Predict(test_images_norm, test_labels, parameters, use_batchnorm)
+    accuracy = Predict(test_images_norm.T, test_labels.T, parameters,
+                       use_batchnorm)
 
-    print(f"accuracy: {accuracy}")
+    print(f"test accuracy: {accuracy}")
 
